@@ -23,6 +23,14 @@ semver_range=$(cat $build_dir/package.json | $bp_dir/vendor/jq -r .engines.node)
 # Resolve node version using semver.io
 node_version=$(curl --silent --get --data-urlencode "range=${semver_range}" https://semver.io/node/resolve)
 
+
+# Check whether we need to run bower
+if [ -f $build_dir/bower.json ]; then
+  run_bower=1
+else
+  run_bower=0
+fi
+
 # Recommend using semver ranges in a safe manner
 if [ "$semver_range" == "null" ]; then
   protip "Specify a node version in package.json"
@@ -104,6 +112,11 @@ fi
   status "Installing dependencies"
   # Make npm output to STDOUT instead of its default STDERR
   npm install --userconfig $build_dir/.npmrc --production 2>&1 | indent
+  
+  if [ $run_bower -ne 0 ] && [ ! -f $build_dir/node_modules/.bin/bower ]; then
+    # Install bower locally
+    npm install --userconfig $build_dir/.npmrc --production bower 2>&1 | indent
+  fi
 )
 
 # Persist goodies like node-version in the slug
@@ -145,6 +158,18 @@ if [ ! -e $build_dir/Procfile ]; then
     protip "Create a Procfile or specify a start script in package.json"
   fi
 fi
+
+(
+  # Run bower
+  if [ $run_bower -ne 0 ]; then
+    status "Installing frontend packages with bower"
+    export GITHUB_AUTH_TOKEN=$(cat $env_dir/GITHUB_AUTH_TOKEN)
+    export bower_shorthand_resolver=git+https://$GITHUB_AUTH_TOKEN:x-oauth-basic@github.com/{{owner}}/{{package}}
+    export bower_storage__packages=$cache_dir/bower
+    export bower_config__interactive=false
+    $build_dir/node_modules/.bin/bower install 2>&1 | indent
+  fi
+)
 
 # install compass
 status "Installing Compass"
